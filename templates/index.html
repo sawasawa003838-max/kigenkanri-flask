@@ -12,6 +12,12 @@
     <input type="date" name="date">
     <button type="submit">登録</button>
 </form>
+<h2>登録した食品</h2>
 
+<ul>
+    {% for food in foods %}
+        <li>{{ food[1] }}：{{ food[2] }}</li>
+    {% endfor %}
+</ul>
 </body>
 </html>

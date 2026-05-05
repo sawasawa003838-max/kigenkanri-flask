@@ -34,9 +34,15 @@ def home():
         conn.commit()
         conn.close()
 
-        print(name,date)
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
 
-    return render_template("index.html")
+    cursor.execute("SELECT * FROM foods")
+    foods = cursor.fetchall()
+
+    conn.close()
+
+    return render_template("index.html", foods=foods)
 
 if __name__ == "__main__":
     init_db()
