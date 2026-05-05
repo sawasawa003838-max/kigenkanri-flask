@@ -56,6 +56,24 @@ def delete_food(food_id):
 
     return redirect("/")
 
+@app.route("/edit/<int:food_id>", methods=["POST"])
+def edit_food(food_id):
+    name = request.form["name"]
+    date = request.form["date"]
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "UPDATE foods SET name = ?, date = ? WHERE id = ?",
+        (name, date, food_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/")
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)

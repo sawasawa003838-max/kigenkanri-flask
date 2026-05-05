@@ -17,7 +17,12 @@
 <ul>
     {% for food in foods %}
         <li>
-            {{ food[1] }}：{{ food[2] }}
+            <form action="/edit/{{ food[0] }}" method="POST" style="display:inline;">
+                <input type="text" name="name" value="{{ food[1] }}">
+                <input type="date" name="date" value="{{ food[2] }}">
+                <button type="submit">更新</button>
+            </form>
+            
             <form action="/delete/{{ food[0] }}" method="POST" style="display:inline;">
                 <button type="submit">削除</button>
             </form>
