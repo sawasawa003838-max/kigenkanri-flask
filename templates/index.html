@@ -16,7 +16,12 @@
 
 <ul>
     {% for food in foods %}
-        <li>{{ food[1] }}：{{ food[2] }}</li>
+        <li>
+            {{ food[1] }}：{{ food[2] }}
+            <form action="/delete/{{ food[0] }}" method="POST" style="display:inline;">
+                <button type="submit">削除</button>
+            </form>
+        </li>
     {% endfor %}
 </ul>
 </body>
