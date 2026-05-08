@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect
 import sqlite3
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -22,7 +23,13 @@ def init_db():
 def home():
     if request.method == "POST":
         name = request.form["name"]
-        date = request.form["date"]
+        open_date = request.form["open_date"]
+        days = int(request.form["days"])
+
+        open_date_obj = datetime.strptime(open_date, "%Y-%m-%d")
+        expiry_date = open_date_obj + timedelta(days=days)
+        date = expiry_date.strftime("%Y-%m-%d")
+
         conn = sqlite3.connect("database.db")
         cursor = conn.cursor()
 
