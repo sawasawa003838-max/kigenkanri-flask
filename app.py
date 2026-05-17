@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, redirect
 import sqlite3
 from datetime import date, timedelta
+
+from flask import Flask, render_template, request, redirect
 
 app = Flask(__name__)
 
@@ -25,23 +26,46 @@ def calculate_expiry_date(open_date, shelf_life_days):
     return open_date + timedelta(days=shelf_life_days)
 
 
+def fetch_foods():
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM foods")
+    foods = cursor.fetchall()
+    conn.close()
+    return foods
+
+
+def render_home_with_error(error):
+    return render_template("index.html", foods=fetch_foods(), error=error), 400
+
+
+def validate_name(name):
+    name = name.strip()
+    if name == "":
+        return None, "食品名を入力してください"
+    return name, None
+
+
+def validate_iso_date(date_text, label):
+    try:
+        date.fromisoformat(date_text)
+    except ValueError:
+        return None, f"{label}を正しい形式で入力してください"
+    return date_text, None
+
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     error = None
 
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
+        name, error = validate_name(request.form.get("name", ""))
         open_date_text = request.form.get("open_date", "")
-        days_text = request.form.get("days", "")
+        days_text = request.form.get("days", "").strip()
 
-        if name == "":
-            error = "食品名を入力してください"
-        elif not days_text.isdigit():
+        if error is None and not days_text.isdigit():
             error = "保存日数は1以上の数字で入力してください"
-        else:
+        elif error is None:
             days = int(days_text)
 
             if days < 1:
@@ -52,20 +76,18 @@ def home():
                     expiry_date = calculate_expiry_date(open_date_obj, days)
                     expiry_date_text = expiry_date.isoformat()
 
+                    conn = sqlite3.connect("database.db")
+                    cursor = conn.cursor()
                     cursor.execute(
                         "INSERT INTO foods (name, date) VALUES (?, ?)",
                         (name, expiry_date_text)
                     )
                     conn.commit()
+                    conn.close()
                 except ValueError:
                     error = "開封日を正しい形式で入力してください"
 
-    cursor.execute("SELECT * FROM foods")
-    foods = cursor.fetchall()
-
-    conn.close()
-
-    return render_template("index.html", foods=foods, error=error)
+    return render_template("index.html", foods=fetch_foods(), error=error)
 
 
 @app.route("/delete/<int:food_id>", methods=["POST"])
@@ -83,8 +105,13 @@ def delete_food(food_id):
 
 @app.route("/edit/<int:food_id>", methods=["POST"])
 def edit_food(food_id):
-    name = request.form["name"]
-    date_text = request.form["date"]
+    name, error = validate_name(request.form.get("name", ""))
+    if error is not None:
+        return render_home_with_error(error)
+
+    date_text, error = validate_iso_date(request.form.get("date", ""), "賞味期限")
+    if error is not None:
+        return render_home_with_error(error)
 
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
