@@ -1,10 +1,19 @@
-from flask import Flask, render_template, request, redirect
+import os
 import sqlite3
 
+from flask import Flask, render_template, request, redirect
+
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
+app.config["DATABASE"] = os.environ.get("DATABASE", "database.db")
+
+
+def get_db_connection():
+    return sqlite3.connect(app.config["DATABASE"])
+
 
 def init_db():
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -21,9 +30,9 @@ def init_db():
 @app.route("/", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
-        name = request.form["name"]
-        date = request.form["date"]
-        conn = sqlite3.connect("database.db")
+        name = request.form.get("name", "")
+        date = request.form.get("date", "")
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute(
@@ -34,7 +43,7 @@ def home():
         conn.commit()
         conn.close()
 
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM foods")
@@ -46,7 +55,7 @@ def home():
 
 @app.route("/delete/<int:food_id>", methods=["POST"])
 def delete_food(food_id):
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM foods WHERE id = ?", (food_id,))
@@ -58,10 +67,10 @@ def delete_food(food_id):
 
 @app.route("/edit/<int:food_id>", methods=["POST"])
 def edit_food(food_id):
-    name = request.form["name"]
-    date = request.form["date"]
+    name = request.form.get("name", "")
+    date = request.form.get("date", "")
 
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
@@ -77,4 +86,3 @@ def edit_food(food_id):
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)
-    
