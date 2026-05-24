@@ -105,6 +105,8 @@ def home():
                 conn.close()
             except ValueError:
                 error = "開封日を正しい形式で入力してください"
+            except OverflowError:
+                error = "開封日と保存日数の組み合わせが大きすぎます"
 
     return render_template(
         "index.html",

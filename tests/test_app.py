@@ -73,3 +73,23 @@ def test_days_input_has_max_attribute(client):
     response = client.get("/")
 
     assert 'max="3650"' in response.get_data(as_text=True)
+
+
+def test_expiry_date_overflow_shows_error_without_saving(client):
+    before = count_foods()
+
+    response = client.post(
+        "/",
+        data={
+            "name": "overflow-date",
+            "open_date": "9999-12-31",
+            "days": "1",
+        },
+    )
+
+    after = count_foods()
+    body = response.get_data(as_text=True)
+
+    assert response.status_code != 500
+    assert after == before
+    assert "開封日と保存日数の組み合わせが大きすぎます" in body
