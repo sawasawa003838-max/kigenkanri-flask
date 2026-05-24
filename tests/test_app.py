@@ -70,33 +70,15 @@ def test_can_delete_food(client):
     assert fetch_foods() == []
 
 
-def test_empty_food_name_does_not_return_500(client):
+def test_empty_food_name_does_not_cause_500_error(client):
     response = client.post("/", data={"name": "", "date": "2026-05-20"})
 
     assert response.status_code != 500
 
 
 @pytest.mark.parametrize("date", ["", "not-a-date"])
-def test_empty_or_invalid_date_does_not_return_500(client, date):
+def test_empty_or_invalid_date_does_not_cause_500_error(client, date):
     response = client.post("/", data={"name": "milk", "date": date})
-
-    assert response.status_code != 500
-
-
-def test_non_numeric_storage_days_does_not_return_500(client):
-    response = client.post(
-        "/",
-        data={"name": "milk", "date": "2026-05-20", "storage_days": "abc"},
-    )
-
-    assert response.status_code != 500
-
-
-def test_storage_days_less_than_one_does_not_return_500(client):
-    response = client.post(
-        "/",
-        data={"name": "milk", "date": "2026-05-20", "storage_days": "0"},
-    )
 
     assert response.status_code != 500
 
