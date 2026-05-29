@@ -1,11 +1,10 @@
-import os
 import sqlite3
+from datetime import date as datetime_date
 
 from flask import Flask, render_template, request, redirect
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
-app.config["DATABASE"] = os.environ.get("DATABASE", "database.db")
+app.config["DATABASE"] = "database.db"
 
 
 def get_db_connection():
@@ -27,21 +26,36 @@ def init_db():
     conn.commit()
     conn.close()
 
+
+def is_valid_food_input(name, expiration_date):
+    if not name.strip():
+        return False
+
+    try:
+        datetime_date.fromisoformat(expiration_date)
+    except ValueError:
+        return False
+
+    return True
+
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
-        name = request.form.get("name", "")
-        date = request.form.get("date", "")
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        name = request.form.get("name", "").strip()
+        date = request.form.get("date", "").strip()
 
-        cursor.execute(
-            "INSERT INTO foods (name, date) VALUES (?, ?)",
-            (name, date)
-        )
+        if is_valid_food_input(name, date):
+            conn = get_db_connection()
+            cursor = conn.cursor()
 
-        conn.commit()
-        conn.close()
+            cursor.execute(
+                "INSERT INTO foods (name, date) VALUES (?, ?)",
+                (name, date)
+            )
+
+            conn.commit()
+            conn.close()
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -67,8 +81,11 @@ def delete_food(food_id):
 
 @app.route("/edit/<int:food_id>", methods=["POST"])
 def edit_food(food_id):
-    name = request.form.get("name", "")
-    date = request.form.get("date", "")
+    name = request.form.get("name", "").strip()
+    date = request.form.get("date", "").strip()
+
+    if not is_valid_food_input(name, date):
+        return redirect("/")
 
     conn = get_db_connection()
     cursor = conn.cursor()

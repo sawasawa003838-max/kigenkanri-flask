@@ -74,6 +74,7 @@ def test_empty_food_name_does_not_cause_500_error(client):
     response = client.post("/", data={"name": "", "date": "2026-05-20"})
 
     assert response.status_code != 500
+    assert fetch_foods() == []
 
 
 @pytest.mark.parametrize("date", ["", "not-a-date"])
@@ -81,6 +82,27 @@ def test_empty_or_invalid_date_does_not_cause_500_error(client, date):
     response = client.post("/", data={"name": "milk", "date": date})
 
     assert response.status_code != 500
+    assert fetch_foods() == []
+
+
+@pytest.mark.parametrize(
+    ("name", "date"),
+    [
+        ("", "2026-05-20"),
+        ("milk", ""),
+        ("milk", "not-a-date"),
+    ],
+)
+def test_invalid_edit_does_not_update_food(client, name, date):
+    food_id = add_food()
+
+    response = client.post(
+        f"/edit/{food_id}",
+        data={"name": name, "date": date},
+    )
+
+    assert response.status_code == 302
+    assert fetch_foods() == [(food_id, "milk", "2026-05-20")]
 
 
 def test_edit_missing_id_does_not_return_500(client):
