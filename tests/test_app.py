@@ -1,40 +1,100 @@
 import sqlite3
-from pathlib import Path
 
 import pytest
 
 import app as app_module
 
 
-TEST_DB = Path(__file__).resolve().parents[1] / ".test-database.db"
-
-
-@pytest.fixture
-def client(monkeypatch):
-    if TEST_DB.exists():
-        TEST_DB.unlink()
-
-    original_connect = sqlite3.connect
-
-    def connect_test_db(*args, **kwargs):
-        return original_connect(TEST_DB, **kwargs)
-
-    monkeypatch.setattr(app_module.sqlite3, "connect", connect_test_db)
+@pytest.fixture()
+def client(tmp_path):
+    test_db = tmp_path / "test.db"
     app_module.app.config["TESTING"] = True
+    app_module.app.config["DATABASE"] = str(test_db)
+
     app_module.init_db()
 
-    yield app_module.app.test_client()
+    with app_module.app.test_client() as client:
+        yield client
 
-    if TEST_DB.exists():
-        TEST_DB.unlink()
+
+def fetch_foods():
+    conn = sqlite3.connect(app_module.app.config["DATABASE"])
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, date FROM foods ORDER BY id")
+    foods = cursor.fetchall()
+    conn.close()
+    return foods
 
 
 def count_foods():
-    conn = sqlite3.connect(TEST_DB)
-    try:
-        return conn.execute("SELECT COUNT(*) FROM foods").fetchone()[0]
-    finally:
-        conn.close()
+    return len(fetch_foods())
+
+
+def add_food(name="milk", date="2026-05-20"):
+    conn = sqlite3.connect(app_module.app.config["DATABASE"])
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO foods (name, date) VALUES (?, ?)", (name, date))
+    food_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return food_id
+
+
+def test_home_page_is_displayed(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+
+
+def test_can_create_food_with_calculated_expiry_date(client):
+    response = client.post(
+        "/",
+        data={"name": "milk", "open_date": "2026-05-20", "days": "3"},
+    )
+
+    assert response.status_code == 200
+    assert fetch_foods() == [(1, "milk", "2026-05-23")]
+
+
+def test_can_edit_food(client):
+    food_id = add_food()
+
+    response = client.post(
+        f"/edit/{food_id}",
+        data={"name": "cheese", "date": "2026-05-25"},
+    )
+
+    assert response.status_code == 302
+    assert fetch_foods() == [(food_id, "cheese", "2026-05-25")]
+
+
+def test_can_delete_food(client):
+    food_id = add_food()
+
+    response = client.post(f"/delete/{food_id}")
+
+    assert response.status_code == 302
+    assert fetch_foods() == []
+
+
+def test_empty_food_name_does_not_save(client):
+    response = client.post(
+        "/",
+        data={"name": "", "open_date": "2026-05-20", "days": "3"},
+    )
+
+    assert response.status_code != 500
+    assert fetch_foods() == []
+
+
+def test_invalid_open_date_does_not_save(client):
+    response = client.post(
+        "/",
+        data={"name": "milk", "open_date": "not-a-date", "days": "3"},
+    )
+
+    assert response.status_code != 500
+    assert fetch_foods() == []
 
 
 @pytest.mark.parametrize(
@@ -65,8 +125,11 @@ def test_days_validation(client, days, should_save):
     body = response.get_data(as_text=True)
 
     assert response.status_code != 500
-    assert after == before + 1 if should_save else after == before
-    assert ("保存日数は1日以上3650日以下で入力してください" in body) != should_save
+    if should_save:
+        assert after == before + 1
+    else:
+        assert after == before
+    assert (app_module.ERROR_SHELF_LIFE_DAYS in body) != should_save
 
 
 def test_days_input_has_max_attribute(client):
@@ -92,4 +155,39 @@ def test_expiry_date_overflow_shows_error_without_saving(client):
 
     assert response.status_code != 500
     assert after == before
-    assert "開封日と保存日数の組み合わせが大きすぎます" in body
+    assert app_module.ERROR_DATE_OVERFLOW in body
+
+
+@pytest.mark.parametrize(
+    ("name", "date"),
+    [
+        ("", "2026-05-20"),
+        ("milk", ""),
+        ("milk", "not-a-date"),
+    ],
+)
+def test_invalid_edit_does_not_update_food(client, name, date):
+    food_id = add_food()
+
+    response = client.post(
+        f"/edit/{food_id}",
+        data={"name": name, "date": date},
+    )
+
+    assert response.status_code != 500
+    assert fetch_foods() == [(food_id, "milk", "2026-05-20")]
+
+
+def test_edit_missing_id_does_not_return_500(client):
+    response = client.post(
+        "/edit/999",
+        data={"name": "milk", "date": "2026-05-20"},
+    )
+
+    assert response.status_code != 500
+
+
+def test_delete_missing_id_does_not_return_500(client):
+    response = client.post("/delete/999")
+
+    assert response.status_code != 500
