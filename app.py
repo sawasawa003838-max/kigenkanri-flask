@@ -7,6 +7,12 @@ app = Flask(__name__)
 app.config["DATABASE"] = "database.db"
 
 MAX_SHELF_LIFE_DAYS = 3650
+EXPIRING_SOON_DAYS = 3
+
+STATUS_EXPIRED = "\u671f\u9650\u5207\u308c"
+STATUS_EXPIRING_SOON = "\u671f\u9650\u9593\u8fd1"
+STATUS_NORMAL = "\u901a\u5e38"
+
 ERROR_NAME_REQUIRED = "\u98df\u54c1\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044"
 ERROR_DATE_SUFFIX = "\u3092\u6b63\u3057\u3044\u5f62\u5f0f\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044"
 ERROR_OPEN_DATE_INVALID = "\u958b\u5c01\u65e5\u3092\u6b63\u3057\u3044\u5f62\u5f0f\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044"
@@ -41,6 +47,21 @@ def init_db():
 
 def calculate_expiry_date(open_date, shelf_life_days):
     return open_date + timedelta(days=shelf_life_days)
+
+
+def determine_expiry_status(expiry_date_text, today=None):
+    if today is None:
+        today = date.today()
+
+    expiry_date = date.fromisoformat(expiry_date_text)
+
+    if expiry_date < today:
+        return STATUS_EXPIRED
+
+    if expiry_date <= today + timedelta(days=EXPIRING_SOON_DAYS):
+        return STATUS_EXPIRING_SOON
+
+    return STATUS_NORMAL
 
 
 def fetch_foods():

@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import date
 
 import pytest
 
@@ -191,3 +192,35 @@ def test_delete_missing_id_does_not_return_500(client):
     response = client.post("/delete/999")
 
     assert response.status_code != 500
+
+
+def test_expiry_status_is_expired_for_yesterday():
+    today = date(2026, 7, 2)
+
+    status = app_module.determine_expiry_status("2026-07-01", today)
+
+    assert status == app_module.STATUS_EXPIRED
+
+
+def test_expiry_status_is_expiring_soon_for_today():
+    today = date(2026, 7, 2)
+
+    status = app_module.determine_expiry_status("2026-07-02", today)
+
+    assert status == app_module.STATUS_EXPIRING_SOON
+
+
+def test_expiry_status_is_expiring_soon_for_three_days_later():
+    today = date(2026, 7, 2)
+
+    status = app_module.determine_expiry_status("2026-07-05", today)
+
+    assert status == app_module.STATUS_EXPIRING_SOON
+
+
+def test_expiry_status_is_normal_for_four_days_later():
+    today = date(2026, 7, 2)
+
+    status = app_module.determine_expiry_status("2026-07-06", today)
+
+    assert status == app_module.STATUS_NORMAL
