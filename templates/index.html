@@ -17,6 +17,7 @@
     <input type="number" name="days" placeholder="保存日数" min="1" max="{{ max_shelf_life_days }}" required>
     <button type="submit">登録</button>
 </form>
+
 <h2>登録した食品</h2>
 
 <ul>
@@ -25,6 +26,11 @@
             <form action="/edit/{{ food[0] }}" method="POST" style="display:inline;">
                 <input type="text" name="name" value="{{ food[1] }}">
                 <input type="date" name="date" value="{{ food[2] }}">
+
+                <span>
+                    状態：{{ food[3] }}
+                </span>
+
                 <button type="submit">更新</button>
             </form>
 
@@ -34,5 +40,6 @@
         </li>
     {% endfor %}
 </ul>
+
 </body>
 </html>

@@ -266,3 +266,16 @@ def test_invalid_expiry_date_does_not_return_500(client):
         app_module.EXPIRY_STATUS_INVALID
     )
     assert response.status_code == 200
+
+
+def test_home_page_shows_expiry_status(client):
+    add_food(
+        name="invalid-date-food",
+        date="not-a-date",
+    )
+
+    response = client.get("/")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert app_module.EXPIRY_STATUS_INVALID in body
