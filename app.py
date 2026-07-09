@@ -14,20 +14,16 @@ EXPIRY_STATUS_SOON = "期限間近"
 EXPIRY_STATUS_NORMAL = "通常"
 EXPIRY_STATUS_INVALID = "日付エラー"
 
-STATUS_EXPIRED = "\u671f\u9650\u5207\u308c"
-STATUS_EXPIRING_SOON = "\u671f\u9650\u9593\u8fd1"
-STATUS_NORMAL = "\u901a\u5e38"
-
-ERROR_NAME_REQUIRED = "\u98df\u54c1\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044"
-ERROR_DATE_SUFFIX = "\u3092\u6b63\u3057\u3044\u5f62\u5f0f\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044"
-ERROR_OPEN_DATE_INVALID = "\u958b\u5c01\u65e5\u3092\u6b63\u3057\u3044\u5f62\u5f0f\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044"
-ERROR_DATE_OVERFLOW = "\u958b\u5c01\u65e5\u3068\u4fdd\u5b58\u65e5\u6570\u306e\u7d44\u307f\u5408\u308f\u305b\u304c\u5927\u304d\u3059\u304e\u307e\u3059"
+ERROR_NAME_REQUIRED = "食品名を入力してください"
+ERROR_DATE_SUFFIX = "を正しい形式で入力してください"
+ERROR_OPEN_DATE_INVALID = "開封日を正しい形式で入力してください"
+ERROR_DATE_OVERFLOW = "開封日と保存日数の組み合わせが大きすぎます"
 ERROR_SHELF_LIFE_DAYS = (
-    "\u4fdd\u5b58\u65e5\u6570\u306f1\u65e5\u4ee5\u4e0a"
+    "保存日数は1日以上"
     f"{MAX_SHELF_LIFE_DAYS}"
-    "\u65e5\u4ee5\u4e0b\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044"
+    "日以下で入力してください"
 )
-LABEL_EXPIRY_DATE = "\u8cde\u5473\u671f\u9650"
+LABEL_EXPIRY_DATE = "賞味期限"
 
 
 def get_db_connection():
@@ -60,7 +56,7 @@ def determine_expiry_status(expiry_date_text, today=None):
 
     try:
         expiry_date = date.fromisoformat(expiry_date_text)
-    except ValueError:
+    except (TypeError, ValueError):
         return EXPIRY_STATUS_INVALID
 
     days_until_expiry = (expiry_date - today).days
@@ -137,6 +133,7 @@ def validate_shelf_life_days(days_text):
         days = int(days_text)
     except ValueError:
         return None, ERROR_SHELF_LIFE_DAYS
+
     if days < 1 or days > MAX_SHELF_LIFE_DAYS:
         return None, ERROR_SHELF_LIFE_DAYS
 

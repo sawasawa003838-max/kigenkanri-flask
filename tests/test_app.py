@@ -126,10 +126,12 @@ def test_days_validation(client, days, should_save):
     body = response.get_data(as_text=True)
 
     assert response.status_code != 500
+
     if should_save:
         assert after == before + 1
     else:
         assert after == before
+
     assert (app_module.ERROR_SHELF_LIFE_DAYS in body) != should_save
 
 
@@ -199,7 +201,7 @@ def test_expiry_status_is_expired_for_yesterday():
 
     status = app_module.determine_expiry_status("2026-07-01", today)
 
-    assert status == app_module.STATUS_EXPIRED
+    assert status == app_module.EXPIRY_STATUS_EXPIRED
 
 
 def test_expiry_status_is_expiring_soon_for_today():
@@ -207,7 +209,7 @@ def test_expiry_status_is_expiring_soon_for_today():
 
     status = app_module.determine_expiry_status("2026-07-02", today)
 
-    assert status == app_module.STATUS_EXPIRING_SOON
+    assert status == app_module.EXPIRY_STATUS_SOON
 
 
 def test_expiry_status_is_expiring_soon_for_three_days_later():
@@ -215,7 +217,7 @@ def test_expiry_status_is_expiring_soon_for_three_days_later():
 
     status = app_module.determine_expiry_status("2026-07-05", today)
 
-    assert status == app_module.STATUS_EXPIRING_SOON
+    assert status == app_module.EXPIRY_STATUS_SOON
 
 
 def test_expiry_status_is_normal_for_four_days_later():
@@ -223,7 +225,7 @@ def test_expiry_status_is_normal_for_four_days_later():
 
     status = app_module.determine_expiry_status("2026-07-06", today)
 
-    assert status == app_module.STATUS_NORMAL
+    assert status == app_module.EXPIRY_STATUS_NORMAL
 
 
 def test_fetch_foods_includes_expiry_status(client):
@@ -248,9 +250,7 @@ def test_fetch_foods_includes_expiry_status(client):
     ]
 
 
-def test_invalid_expiry_date_does_not_return_500(
-    client,
-):
+def test_invalid_expiry_date_does_not_return_500(client):
     add_food(
         name="invalid-date-food",
         date="not-a-date",
