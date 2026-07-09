@@ -224,3 +224,45 @@ def test_expiry_status_is_normal_for_four_days_later():
     status = app_module.determine_expiry_status("2026-07-06", today)
 
     assert status == app_module.STATUS_NORMAL
+
+
+def test_fetch_foods_includes_expiry_status(client):
+    reference_date = date(2026, 6, 1)
+
+    food_id = add_food(
+        name="milk",
+        date="2026-06-04",
+    )
+
+    foods = app_module.fetch_foods(
+        reference_date=reference_date
+    )
+
+    assert foods == [
+        (
+            food_id,
+            "milk",
+            "2026-06-04",
+            app_module.EXPIRY_STATUS_SOON,
+        )
+    ]
+
+
+def test_invalid_expiry_date_does_not_return_500(
+    client,
+):
+    add_food(
+        name="invalid-date-food",
+        date="not-a-date",
+    )
+
+    foods = app_module.fetch_foods(
+        reference_date=date(2026, 6, 1)
+    )
+
+    response = client.get("/")
+
+    assert foods[0][3] == (
+        app_module.EXPIRY_STATUS_INVALID
+    )
+    assert response.status_code == 200

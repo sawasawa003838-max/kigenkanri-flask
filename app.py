@@ -9,6 +9,11 @@ app.config["DATABASE"] = "database.db"
 MAX_SHELF_LIFE_DAYS = 3650
 EXPIRING_SOON_DAYS = 3
 
+EXPIRY_STATUS_EXPIRED = "期限切れ"
+EXPIRY_STATUS_SOON = "期限間近"
+EXPIRY_STATUS_NORMAL = "通常"
+EXPIRY_STATUS_INVALID = "日付エラー"
+
 STATUS_EXPIRED = "\u671f\u9650\u5207\u308c"
 STATUS_EXPIRING_SOON = "\u671f\u9650\u9593\u8fd1"
 STATUS_NORMAL = "\u901a\u5e38"
@@ -53,23 +58,50 @@ def determine_expiry_status(expiry_date_text, today=None):
     if today is None:
         today = date.today()
 
-    expiry_date = date.fromisoformat(expiry_date_text)
+    try:
+        expiry_date = date.fromisoformat(expiry_date_text)
+    except ValueError:
+        return EXPIRY_STATUS_INVALID
 
-    if expiry_date < today:
-        return STATUS_EXPIRED
+    days_until_expiry = (expiry_date - today).days
 
-    if expiry_date <= today + timedelta(days=EXPIRING_SOON_DAYS):
-        return STATUS_EXPIRING_SOON
+    if days_until_expiry < 0:
+        return EXPIRY_STATUS_EXPIRED
 
-    return STATUS_NORMAL
+    if days_until_expiry <= EXPIRING_SOON_DAYS:
+        return EXPIRY_STATUS_SOON
+
+    return EXPIRY_STATUS_NORMAL
 
 
-def fetch_foods():
+def fetch_foods(reference_date=None):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM foods")
-    foods = cursor.fetchall()
+
+    cursor.execute(
+        "SELECT id, name, date FROM foods"
+    )
+
+    food_rows = cursor.fetchall()
     conn.close()
+
+    foods = []
+
+    for food_id, name, expiry_date in food_rows:
+        status = determine_expiry_status(
+            expiry_date,
+            reference_date,
+        )
+
+        foods.append(
+            (
+                food_id,
+                name,
+                expiry_date,
+                status,
+            )
+        )
+
     return foods
 
 
