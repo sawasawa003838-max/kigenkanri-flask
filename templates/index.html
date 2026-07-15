@@ -14,7 +14,14 @@
 <form method="POST">
     <input type="text" name="name" placeholder="食品名" required>
     <input type="date" name="open_date" required>
-    <input type="number" name="days" placeholder="保存日数" min="1" max="{{ max_shelf_life_days }}" required>
+    <input
+        type="number"
+        name="days"
+        placeholder="保存日数"
+        min="1"
+        max="{{ max_shelf_life_days }}"
+        required
+    >
     <button type="submit">登録</button>
 </form>
 
@@ -23,18 +30,18 @@
 <ul>
     {% for food in foods %}
         <li>
-            <form action="/edit/{{ food[0] }}" method="POST" style="display:inline;">
-                <input type="text" name="name" value="{{ food[1] }}">
-                <input type="date" name="date" value="{{ food[2] }}">
+            <form action="/edit/{{ food.id }}" method="POST" style="display:inline;">
+                <input type="text" name="name" value="{{ food.name }}">
+                <input type="date" name="date" value="{{ food.expiry_date }}">
 
                 <span>
-                    状態：{{ food[3] }}
+                    状態：{{ food.expiry_status }}
                 </span>
 
                 <button type="submit">更新</button>
             </form>
 
-            <form action="/delete/{{ food[0] }}" method="POST" style="display:inline;">
+            <form action="/delete/{{ food.id }}" method="POST" style="display:inline;">
                 <button type="submit">削除</button>
             </form>
         </li>

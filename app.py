@@ -1,4 +1,5 @@
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from flask import Flask, render_template, request, redirect
@@ -24,6 +25,14 @@ ERROR_SHELF_LIFE_DAYS = (
     "日以下で入力してください"
 )
 LABEL_EXPIRY_DATE = "賞味期限"
+
+
+@dataclass
+class Food:
+    id: int
+    name: str
+    expiry_date: str
+    expiry_status: str
 
 
 def get_db_connection():
@@ -90,11 +99,11 @@ def fetch_foods(reference_date=None):
         )
 
         foods.append(
-            (
-                food_id,
-                name,
-                expiry_date,
-                status,
+            Food(
+                id=food_id,
+                name=name,
+                expiry_date=expiry_date,
+                expiry_status=status,
             )
         )
 

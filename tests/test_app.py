@@ -241,11 +241,11 @@ def test_fetch_foods_includes_expiry_status(client):
     )
 
     assert foods == [
-        (
-            food_id,
-            "milk",
-            "2026-06-04",
-            app_module.EXPIRY_STATUS_SOON,
+        app_module.Food(
+            id=food_id,
+            name="milk",
+            expiry_date="2026-06-04",
+            expiry_status=app_module.EXPIRY_STATUS_SOON,
         )
     ]
 
@@ -262,7 +262,7 @@ def test_invalid_expiry_date_does_not_return_500(client):
 
     response = client.get("/")
 
-    assert foods[0][3] == (
+    assert foods[0].expiry_status == (
         app_module.EXPIRY_STATUS_INVALID
     )
     assert response.status_code == 200
