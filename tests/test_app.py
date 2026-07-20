@@ -279,3 +279,57 @@ def test_home_page_shows_expiry_status(client):
 
     assert response.status_code == 200
     assert app_module.EXPIRY_STATUS_INVALID in body
+
+
+def test_build_notification_email_includes_expired_food():
+    expired_food = app_module.Food(
+        id=1,
+        name="milk",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [expired_food]
+    )
+
+    assert subject == "【賞味期限管理】確認が必要な食品があります"
+    assert "milk" in body
+    assert "2026-07-19" in body
+    assert app_module.EXPIRY_STATUS_EXPIRED in body
+
+
+def test_build_notification_email_includes_expiring_soon_food():
+    food = app_module.Food(
+        id=2,
+        name="eggs",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+
+    subject, body = app_module.build_notification_email([food])
+
+    assert "eggs" in body
+    assert "2026-07-22" in body
+    assert app_module.EXPIRY_STATUS_SOON in body
+
+
+def test_build_notification_email_keeps_food_order():
+    milk = app_module.Food(
+        id=1,
+        name="milk",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+    eggs = app_module.Food(
+        id=2,
+        name="eggs",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [milk, eggs]
+    )
+
+    assert body.index("milk") < body.index("eggs")

@@ -79,6 +79,36 @@ def determine_expiry_status(expiry_date_text, today=None):
     return EXPIRY_STATUS_NORMAL
 
 
+def build_notification_email(targets):
+    subject = "【賞味期限管理】確認が必要な食品があります"
+    lines = ["期限の確認が必要な食品をお知らせします。", ""]
+
+    for food in targets:
+        lines.append(
+            f"・{food.name}"
+            f"（期限：{food.expiry_date}、"
+            f"状態：{food.expiry_status}）"
+        )
+
+    lines.extend(["", "食品の状態を確認してください。"])
+    body = "\n".join(lines)
+
+    return subject, body
+
+
+def extract_notification_targets(foods):
+    targets = []
+
+    for food in foods:
+        if food.expiry_status in (
+            EXPIRY_STATUS_EXPIRED,
+            EXPIRY_STATUS_SOON,
+        ):
+            targets.append(food)
+
+    return targets
+
+
 def fetch_foods(reference_date=None):
     conn = get_db_connection()
     cursor = conn.cursor()
