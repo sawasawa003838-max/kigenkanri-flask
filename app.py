@@ -80,6 +80,9 @@ def determine_expiry_status(expiry_date_text, today=None):
 
 
 def build_notification_email(targets):
+    if not targets:
+        return None
+
     subject = "【賞味期限管理】確認が必要な食品があります"
     lines = ["期限の確認が必要な食品をお知らせします。", ""]
 

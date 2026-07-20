@@ -333,3 +333,9 @@ def test_build_notification_email_keeps_food_order():
     )
 
     assert body.index("milk") < body.index("eggs")
+
+
+def test_build_notification_email_returns_none_for_empty_targets():
+    result = app_module.build_notification_email([])
+
+    assert result is None
