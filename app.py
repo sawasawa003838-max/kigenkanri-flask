@@ -79,6 +79,19 @@ def determine_expiry_status(expiry_date_text, today=None):
     return EXPIRY_STATUS_NORMAL
 
 
+def extract_notification_targets(foods):
+    targets = []
+
+    for food in foods:
+        if food.expiry_status in (
+            EXPIRY_STATUS_EXPIRED,
+            EXPIRY_STATUS_SOON,
+        ):
+            targets.append(food)
+
+    return targets
+
+
 def fetch_foods(reference_date=None):
     conn = get_db_connection()
     cursor = conn.cursor()
