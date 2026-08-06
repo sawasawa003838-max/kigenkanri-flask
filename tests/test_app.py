@@ -388,3 +388,64 @@ def test_build_notification_email_includes_multiple_targets_in_order():
     assert "・牛乳（期限：2026-07-19、状態：期限切れ）" in body
     assert "・卵（期限：2026-07-22、状態：期限間近）" in body
     assert body.index("牛乳") < body.index("卵")
+
+
+def test_send_notification_email_sends_expected_email(monkeypatch):
+    expired_food = app_module.Food(
+        id=1,
+        name="牛乳",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+
+    sent_params = {}
+
+    def fake_send(params):
+        sent_params.update(params)
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module.resend.Emails,
+        "send",
+        fake_send,
+    )
+
+    result = app_module.send_notification_email(
+        [expired_food],
+        sender_email="sender@example.com",
+        recipient_email="store@example.com",
+    )
+
+    assert result == {"id": "test-email-id"}
+    assert sent_params["from"] == "sender@example.com"
+    assert sent_params["to"] == ["store@example.com"]
+    assert sent_params["subject"] == (
+        "【賞味期限管理】確認が必要な食品があります"
+    )
+    assert "牛乳" in sent_params["text"]
+
+
+def test_send_notification_email_does_not_send_when_targets_are_empty(
+    monkeypatch,
+):
+    send_was_called = False
+
+    def fake_send(params):
+        nonlocal send_was_called
+        send_was_called = True
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module.resend.Emails,
+        "send",
+        fake_send,
+    )
+
+    result = app_module.send_notification_email(
+        [],
+        sender_email="sender@example.com",
+        recipient_email="store@example.com",
+    )
+
+    assert result is None
+    assert send_was_called is False

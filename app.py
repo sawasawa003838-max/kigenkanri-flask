@@ -1,7 +1,9 @@
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+import resend
 from flask import Flask, render_template, request, redirect
 
 app = Flask(__name__)
@@ -99,7 +101,31 @@ def build_notification_email(targets):
     return subject, body
 
 
-def extract_notification_targets(foods):
+def send_notification_email(
+    targets: Iterable[Food],
+    sender_email: str,
+    recipient_email: str,
+):
+    email_content = build_notification_email(targets)
+
+    if email_content is None:
+        return None
+
+    subject, body = email_content
+
+    params: resend.Emails.SendParams = {
+        "from": sender_email,
+        "to": [recipient_email],
+        "subject": subject,
+        "text": body,
+    }
+
+    return resend.Emails.send(params)
+
+
+def extract_notification_targets(
+    foods: Iterable[Food],
+) -> list[Food]:
     targets = []
 
     for food in foods:
