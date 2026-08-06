@@ -1,4 +1,5 @@
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -79,7 +80,9 @@ def determine_expiry_status(expiry_date_text, today=None):
     return EXPIRY_STATUS_NORMAL
 
 
-def extract_notification_targets(foods):
+def extract_notification_targets(
+    foods: Iterable[Food],
+) -> list[Food]:
     targets = []
 
     for food in foods:
