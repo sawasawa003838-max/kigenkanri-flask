@@ -339,3 +339,52 @@ def test_build_notification_email_returns_none_for_empty_targets():
     result = app_module.build_notification_email([])
 
     assert result is None
+
+
+def test_build_notification_email_creates_email_for_expired_food():
+    expired_food = app_module.Food(
+        id=1,
+        name="牛乳",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [expired_food]
+    )
+
+    assert subject == "【賞味期限管理】確認が必要な食品があります"
+    assert body == (
+        "期限の確認が必要な食品をお知らせします。\n"
+        "\n"
+        "・牛乳（期限：2026-07-19、状態：期限切れ）\n"
+        "\n"
+        "食品の状態を確認してください。"
+    )
+
+
+def test_build_notification_email_includes_multiple_targets_in_order():
+    expired_food = app_module.Food(
+        id=1,
+        name="牛乳",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+    expiring_soon_food = app_module.Food(
+        id=2,
+        name="卵",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [
+            expired_food,
+            expiring_soon_food,
+        ]
+    )
+
+    assert subject == "【賞味期限管理】確認が必要な食品があります"
+    assert "・牛乳（期限：2026-07-19、状態：期限切れ）" in body
+    assert "・卵（期限：2026-07-22、状態：期限間近）" in body
+    assert body.index("牛乳") < body.index("卵")
