@@ -449,3 +449,50 @@ def test_send_notification_email_does_not_send_when_targets_are_empty(
 
     assert result is None
     assert send_was_called is False
+
+
+def test_send_notifications_route_sends_notification_email(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    sent_data = {}
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        sent_data["targets"] = targets
+        sent_data["sender_email"] = sender_email
+        sent_data["recipient_email"] = recipient_email
+
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    monkeypatch.setitem(
+    app_module.app.config,
+    "SENDER_EMAIL",
+    "sender@example.com",
+)
+    monkeypatch.setitem(
+    app_module.app.config,
+    "RECIPIENT_EMAIL",
+    "store@example.com",
+)
+
+    response = client.post("/notifications/send")
+
+    assert response.status_code == 302
+    assert [food.name for food in sent_data["targets"]] == ["milk"]
+    assert sent_data["sender_email"] == "sender@example.com"
+    assert sent_data["recipient_email"] == "store@example.com"

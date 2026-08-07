@@ -247,6 +247,20 @@ def home():
     )
 
 
+@app.route("/notifications/send", methods=["POST"])
+def send_notifications():
+    foods = fetch_foods()
+    targets = extract_notification_targets(foods)
+
+    send_notification_email(
+        targets,
+        sender_email=app.config["SENDER_EMAIL"],
+        recipient_email=app.config["RECIPIENT_EMAIL"],
+    )
+
+    return redirect("/")
+
+
 @app.route("/delete/<int:food_id>", methods=["POST"])
 def delete_food(food_id):
     conn = get_db_connection()
