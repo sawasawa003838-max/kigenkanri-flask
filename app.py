@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 import resend
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, url_for
+from resend.exceptions import ResendError
 
 app = Flask(__name__)
 app.config["DATABASE"] = "database.db"
@@ -218,6 +219,7 @@ def validate_shelf_life_days(days_text):
 @app.route("/", methods=["GET", "POST"])
 def home():
     error = None
+    message = request.args.get("message")
 
     if request.method == "POST":
         name, error = validate_name(request.form.get("name", ""))
@@ -250,6 +252,7 @@ def home():
         "index.html",
         foods=fetch_foods(),
         error=error,
+        message=message,
         max_shelf_life_days=MAX_SHELF_LIFE_DAYS,
     )
 
@@ -266,13 +269,34 @@ def send_notifications():
     foods = fetch_foods()
     targets = extract_notification_targets(foods)
 
-    send_notification_email(
-        targets,
-        sender_email=sender_email,
-        recipient_email=recipient_email,
-    )
+    if not targets:
+        return redirect(
+            url_for(
+                "home",
+                message="通知対象の食品はありません",
+            )
+        )
 
-    return redirect("/")
+    try:
+        send_notification_email(
+            targets,
+            sender_email=sender_email,
+            recipient_email=recipient_email,
+        )
+    except ResendError:
+        return redirect(
+            url_for(
+                "home",
+                message="通知メールの送信に失敗しました",
+            )
+        )
+
+    return redirect(
+        url_for(
+            "home",
+            message="通知メールを送信しました",
+        )
+    )
 
 
 @app.route("/delete/<int:food_id>", methods=["POST"])

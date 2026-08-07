@@ -2,6 +2,7 @@ import sqlite3
 from datetime import date
 
 import pytest
+from resend.exceptions import ResendError
 
 import app as app_module
 
@@ -553,3 +554,137 @@ def test_send_notifications_route_does_not_send_without_email_config(
 
     assert response.status_code == 302
     assert send_was_called is False
+
+
+def test_send_notifications_route_shows_success_message(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    response = client.post(
+        "/notifications/send",
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "通知メールを送信しました" in body
+
+
+def test_send_notifications_route_shows_message_when_no_targets(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    response = client.post(
+        "/notifications/send",
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "通知対象の食品はありません" in body
+
+
+def test_send_notifications_route_shows_error_message_when_send_fails(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        raise ResendError(
+            code=500,
+            error_type="application_error",
+            message="test error",
+            suggested_action="",
+        )
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    response = client.post(
+        "/notifications/send",
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "通知メールの送信に失敗しました" in body
