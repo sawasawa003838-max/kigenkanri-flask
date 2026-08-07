@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -8,6 +9,12 @@ from flask import Flask, render_template, request, redirect
 
 app = Flask(__name__)
 app.config["DATABASE"] = "database.db"
+
+app.config["RESEND_API_KEY"] = os.environ.get("RESEND_API_KEY")
+app.config["SENDER_EMAIL"] = os.environ.get("SENDER_EMAIL")
+app.config["RECIPIENT_EMAIL"] = os.environ.get("RECIPIENT_EMAIL")
+
+resend.api_key = app.config["RESEND_API_KEY"]
 
 MAX_SHELF_LIFE_DAYS = 3650
 EXPIRING_SOON_DAYS = 3
@@ -249,13 +256,20 @@ def home():
 
 @app.route("/notifications/send", methods=["POST"])
 def send_notifications():
+    api_key = app.config["RESEND_API_KEY"]
+    sender_email = app.config["SENDER_EMAIL"]
+    recipient_email = app.config["RECIPIENT_EMAIL"]
+
+    if not api_key or not sender_email or not recipient_email:
+        return redirect("/")
+
     foods = fetch_foods()
     targets = extract_notification_targets(foods)
 
     send_notification_email(
         targets,
-        sender_email=app.config["SENDER_EMAIL"],
-        recipient_email=app.config["RECIPIENT_EMAIL"],
+        sender_email=sender_email,
+        recipient_email=recipient_email,
     )
 
     return redirect("/")

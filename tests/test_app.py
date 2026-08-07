@@ -505,3 +505,51 @@ def test_home_page_has_send_notifications_button(client):
     assert 'action="/notifications/send"' in body
     assert 'method="POST"' in body
     assert "通知メールを送信" in body
+
+
+def test_send_notifications_route_does_not_send_without_email_config(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    send_was_called = False
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        nonlocal send_was_called
+        send_was_called = True
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        None,
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        None,
+    )
+
+    monkeypatch.setitem(
+    app_module.app.config,
+    "RESEND_API_KEY",
+    None,
+    )
+
+    response = client.post("/notifications/send")
+
+    assert response.status_code == 302
+    assert send_was_called is False
