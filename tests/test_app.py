@@ -496,3 +496,12 @@ def test_send_notifications_route_sends_notification_email(
     assert [food.name for food in sent_data["targets"]] == ["milk"]
     assert sent_data["sender_email"] == "sender@example.com"
     assert sent_data["recipient_email"] == "store@example.com"
+
+
+def test_home_page_has_send_notifications_button(client):
+    response = client.get("/")
+    body = response.get_data(as_text=True)
+
+    assert 'action="/notifications/send"' in body
+    assert 'method="POST"' in body
+    assert "通知メールを送信" in body
