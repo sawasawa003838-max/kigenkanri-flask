@@ -11,6 +11,10 @@
     <p style="color: red;">{{ error }}</p>
 {% endif %}
 
+{% if message %}
+    <p>{{ message }}</p>
+{% endif %}
+
 <form method="POST">
     <input type="text" name="name" placeholder="食品名" required>
     <input type="date" name="open_date" required>
@@ -23,6 +27,10 @@
         required
     >
     <button type="submit">登録</button>
+</form>
+
+<form action="/notifications/send" method="POST">
+    <button type="submit">通知メールを送信</button>
 </form>
 
 <h2>登録した食品</h2>
