@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -307,7 +308,7 @@ def send_notifications_command():
 
     if not api_key or not sender_email or not recipient_email:
         print("メール設定が不足しています")
-        return
+        sys.exit(1)
 
     foods = fetch_foods()
     targets = extract_notification_targets(foods)
@@ -324,7 +325,7 @@ def send_notifications_command():
         )
     except ResendError:
         print("通知メールの送信に失敗しました")
-        return
+        sys.exit(1)
 
     print("通知メールを送信しました")
 
