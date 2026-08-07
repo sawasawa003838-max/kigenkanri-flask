@@ -688,3 +688,110 @@ def test_send_notifications_route_shows_error_message_when_send_fails(
 
     assert response.status_code == 200
     assert "通知メールの送信に失敗しました" in body
+
+
+def test_extract_notification_targets_includes_expired_food():
+    expired_food = app_module.Food(
+        id=1,
+        name="milk",
+        expiry_date="2026-07-01",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+
+    targets = app_module.extract_notification_targets(
+        [expired_food]
+    )
+
+    assert targets == [expired_food]
+
+
+def test_extract_notification_targets_includes_expiring_soon_food():
+    expiring_soon_food = app_module.Food(
+        id=2,
+        name="eggs",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+
+    targets = app_module.extract_notification_targets(
+        [expiring_soon_food]
+    )
+
+    assert targets == [expiring_soon_food]
+
+
+def test_extract_notification_targets_excludes_normal_food():
+    normal_food = app_module.Food(
+        id=3,
+        name="rice",
+        expiry_date="2026-08-01",
+        expiry_status=app_module.EXPIRY_STATUS_NORMAL,
+    )
+
+    targets = app_module.extract_notification_targets(
+        [normal_food]
+    )
+
+    assert targets == []
+
+
+def test_extract_notification_targets_excludes_invalid_date_food():
+    invalid_food = app_module.Food(
+        id=4,
+        name="invalid-food",
+        expiry_date="not-a-date",
+        expiry_status=app_module.EXPIRY_STATUS_INVALID,
+    )
+
+    targets = app_module.extract_notification_targets(
+        [invalid_food]
+    )
+
+    assert targets == []
+
+
+def test_extract_notification_targets_returns_multiple_targets_in_order():
+    expired_food = app_module.Food(
+        id=1,
+        name="milk",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+    normal_food = app_module.Food(
+        id=2,
+        name="rice",
+        expiry_date="2026-08-01",
+        expiry_status=app_module.EXPIRY_STATUS_NORMAL,
+    )
+    expiring_soon_food = app_module.Food(
+        id=3,
+        name="eggs",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+    invalid_food = app_module.Food(
+        id=4,
+        name="invalid-food",
+        expiry_date="not-a-date",
+        expiry_status=app_module.EXPIRY_STATUS_INVALID,
+    )
+
+    targets = app_module.extract_notification_targets(
+        [
+            expired_food,
+            normal_food,
+            expiring_soon_food,
+            invalid_food,
+        ]
+    )
+
+    assert targets == [
+        expired_food,
+        expiring_soon_food,
+    ]
+
+
+def test_extract_notification_targets_returns_empty_list_for_empty_input():
+    targets = app_module.extract_notification_targets([])
+
+    assert targets == []
