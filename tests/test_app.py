@@ -1,10 +1,11 @@
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
+import ai_guidance
 import app as app_module
-
+import openai
 
 @pytest.fixture()
 def client(tmp_path):
@@ -280,6 +281,253 @@ def test_home_page_shows_expiry_status(client):
     assert response.status_code == 200
     assert app_module.EXPIRY_STATUS_INVALID in body
 
+
+def test_ai_guidance_route_shows_guidance_for_expiring_soon_food(
+    client,
+    monkeypatch,
+):
+    expiry_date = (date.today() + timedelta(days=1)).isoformat()
+    food_id = add_food(
+        name="卵",
+        date=expiry_date,
+    )
+
+    fake_client = object()
+    captured = {}
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "create_openai_client",
+        lambda: fake_client,
+    )
+
+    def fake_generate_food_guidance(
+        client,
+        food_name,
+        expiry_date,
+        expiry_status,
+    ):
+        captured["client"] = client
+        captured["food_name"] = food_name
+        captured["expiry_date"] = expiry_date
+        captured["expiry_status"] = expiry_status
+
+        return "保存状態を確認してください。"
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "generate_food_guidance",
+        fake_generate_food_guidance,
+    )
+
+    response = client.post(f"/ai-guidance/{food_id}")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert captured["client"] is fake_client
+    assert captured["food_name"] == "卵"
+    assert captured["expiry_date"] == expiry_date
+    assert captured["expiry_status"] == app_module.EXPIRY_STATUS_SOON
+    assert "保存状態を確認してください。" in body
+
+
+def test_ai_guidance_route_does_not_call_ai_for_normal_food(
+    client,
+    monkeypatch,
+):
+    expiry_date = (date.today() + timedelta(days=4)).isoformat()
+    food_id = add_food(
+        name="牛乳",
+        date=expiry_date,
+    )
+
+    def fail_if_called():
+        raise AssertionError("AIを呼んではいけません")
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "create_openai_client",
+        fail_if_called,
+    )
+
+    response = client.post(f"/ai-guidance/{food_id}")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert "AI確認は期限切れ・期限間近の食品で利用できます。" in body
+
+
+def test_ai_guidance_route_missing_food_does_not_return_500(client):
+    response = client.post("/ai-guidance/999")
+
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert "食品が見つかりません。" in body
+
+
+def test_ai_guidance_route_handles_api_error(client, monkeypatch):
+    expiry_date = (date.today() + timedelta(days=1)).isoformat()
+    food_id = add_food(
+        name="卵",
+        date=expiry_date,
+    )
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "create_openai_client",
+        lambda: object(),
+    )
+
+    def fail_generate_food_guidance(**kwargs):
+        raise openai.APIError(
+            "API error",
+            None,
+            body=None,
+        )
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "generate_food_guidance",
+        fail_generate_food_guidance,
+    )
+
+    response = client.post(f"/ai-guidance/{food_id}")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code != 500
+    assert "AIから確認ポイントを取得できませんでした。" in body
+
+
+def test_home_page_shows_ai_button_only_for_target_foods(client):
+    soon_date = (date.today() + timedelta(days=1)).isoformat()
+    normal_date = (date.today() + timedelta(days=4)).isoformat()
+
+    add_food(name="卵", date=soon_date)
+    add_food(name="牛乳", date=normal_date)
+
+    response = client.get("/")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert body.count("AIで確認ポイント") == 1
+
+
+def test_ai_guidance_route_works_for_expired_food(
+    client,
+    monkeypatch,
+):
+    expiry_date = (date.today() - timedelta(days=1)).isoformat()
+    food_id = add_food(
+        name="ヨーグルト",
+        date=expiry_date,
+    )
+
+    fake_client = object()
+    captured = {}
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "create_openai_client",
+        lambda: fake_client,
+    )
+
+    def fake_generate_food_guidance(
+        client,
+        food_name,
+        expiry_date,
+        expiry_status,
+    ):
+        captured["expiry_status"] = expiry_status
+        return "保存状態を確認してください。"
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "generate_food_guidance",
+        fake_generate_food_guidance,
+    )
+
+    response = client.post(f"/ai-guidance/{food_id}")
+
+    assert response.status_code == 200
+    assert captured["expiry_status"] == app_module.EXPIRY_STATUS_EXPIRED
+
+
+def test_ai_guidance_route_does_not_call_ai_for_invalid_date(
+    client,
+    monkeypatch,
+):
+    food_id = add_food(
+        name="牛乳",
+        date="not-a-date",
+    )
+
+    def fail_if_called():
+        raise AssertionError("AIを呼んではいけません")
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "create_openai_client",
+        fail_if_called,
+    )
+
+    response = client.post(f"/ai-guidance/{food_id}")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert "AI確認は期限切れ・期限間近の食品で利用できます。" in body
+
+
+def test_ai_guidance_route_handles_value_error(client, monkeypatch):
+    expiry_date = (date.today() + timedelta(days=1)).isoformat()
+    food_id = add_food(
+        name="卵",
+        date=expiry_date,
+    )
+
+    def fail_create_openai_client():
+        raise ValueError("OPENAI_API_KEYが設定されていません。")
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "create_openai_client",
+        fail_create_openai_client,
+    )
+
+    response = client.post(f"/ai-guidance/{food_id}")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code != 500
+    assert "AIから確認ポイントを取得できませんでした。" in body
+
+
+def test_ai_guidance_display_preserves_line_breaks(
+    client,
+    monkeypatch,
+):
+    expiry_date = (date.today() + timedelta(days=1)).isoformat()
+    food_id = add_food(
+        name="卵",
+        date=expiry_date,
+    )
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "create_openai_client",
+        lambda: object(),
+    )
+
+    monkeypatch.setattr(
+        ai_guidance,
+        "generate_food_guidance",
+        lambda **kwargs: "1. 保存状態を確認\n2. 見た目を確認",
+    )
+
+    response = client.post(f"/ai-guidance/{food_id}")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'white-space: pre-line' in body
 
 def test_extract_notification_targets_includes_expired_food():
     expired_food = app_module.Food(

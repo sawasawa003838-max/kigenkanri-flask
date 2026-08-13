@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from flask import Flask, render_template, request, redirect
+import ai_guidance
+import openai
 
 app = Flask(__name__)
 app.config["DATABASE"] = "database.db"
@@ -239,6 +241,55 @@ def edit_food(food_id):
     conn.close()
 
     return redirect("/")
+
+
+@app.route("/ai-guidance/<int:food_id>", methods=["POST"])
+def show_ai_guidance(food_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+    "SELECT name, date FROM foods WHERE id = ?",
+    (food_id,),
+    )
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if row is None:
+        return render_home_with_error("食品が見つかりません。")
+
+    name, expiry_date = row
+    expiry_status = determine_expiry_status(expiry_date)
+
+    if expiry_status not in (
+        EXPIRY_STATUS_EXPIRED,
+        EXPIRY_STATUS_SOON,
+    ):
+        return render_home_with_error(
+            "AI確認は期限切れ・期限間近の食品で利用できます。"
+        )
+
+    try:
+        client = ai_guidance.create_openai_client()
+        guidance = ai_guidance.generate_food_guidance(
+            client=client,
+            food_name=name,
+            expiry_date=expiry_date,
+            expiry_status=expiry_status,
+        )
+    except (ValueError, openai.APIError):
+        return render_home_with_error(
+            "AIから確認ポイントを取得できませんでした。"
+        )
+
+    return render_template(
+        "index.html",
+        foods=fetch_foods(),
+        error=None,
+        ai_guidance_text=guidance,
+        max_shelf_life_days=MAX_SHELF_LIFE_DAYS,
+    )
 
 
 if __name__ == "__main__":

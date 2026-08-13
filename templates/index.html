@@ -25,6 +25,11 @@
     <button type="submit">登録</button>
 </form>
 
+{% if ai_guidance_text %}
+    <h2>AIによる確認ポイント</h2>
+    <p style="white-space: pre-line;">{{ ai_guidance_text }}</p>
+{% endif %}
+
 <h2>登録した食品</h2>
 
 <ul>
@@ -44,6 +49,11 @@
             <form action="/delete/{{ food.id }}" method="POST" style="display:inline;">
                 <button type="submit">削除</button>
             </form>
+            {% if food.expiry_status in ["期限切れ", "期限間近"] %}
+                <form action="/ai-guidance/{{ food.id }}" method="POST" style="display:inline;">
+                    <button type="submit">AIで確認ポイント</button>
+                </form>
+            {% endif %}
         </li>
     {% endfor %}
 </ul>
