@@ -690,6 +690,188 @@ def test_send_notifications_route_shows_error_message_when_send_fails(
     assert "通知メールの送信に失敗しました" in body
 
 
+def test_send_notifications_command_sends_notification_email(
+    monkeypatch,
+    tmp_path,
+):
+    test_db = tmp_path / "test.db"
+    app_module.app.config["DATABASE"] = str(test_db)
+
+    app_module.init_db()
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    sent_data = {}
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        sent_data["targets"] = targets
+        sent_data["sender_email"] = sender_email
+        sent_data["recipient_email"] = recipient_email
+
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    runner = app_module.app.test_cli_runner()
+
+    result = runner.invoke(
+        args=["send-notifications"],
+    )
+
+    assert result.exit_code == 0
+    assert [food.name for food in sent_data["targets"]] == ["milk"]
+    assert sent_data["sender_email"] == "sender@example.com"
+    assert sent_data["recipient_email"] == "store@example.com"
+    assert "通知メールを送信しました" in result.output
+
+
+def test_send_notifications_command_succeeds_when_no_targets(
+    monkeypatch,
+    tmp_path,
+):
+    test_db = tmp_path / "test.db"
+    app_module.app.config["DATABASE"] = str(test_db)
+
+    app_module.init_db()
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    runner = app_module.app.test_cli_runner()
+
+    result = runner.invoke(
+        args=["send-notifications"],
+    )
+
+    assert result.exit_code == 0
+    assert "通知対象の食品はありません" in result.output
+
+
+def test_send_notifications_command_fails_without_email_config(
+    monkeypatch,
+):
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        None,
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        None,
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        None,
+    )
+
+    runner = app_module.app.test_cli_runner()
+
+    result = runner.invoke(
+        args=["send-notifications"],
+    )
+
+    assert result.exit_code == 1
+    assert "メール設定が不足しています" in result.output
+
+
+def test_send_notifications_command_fails_when_send_fails(
+    monkeypatch,
+    tmp_path,
+):
+    test_db = tmp_path / "test.db"
+    app_module.app.config["DATABASE"] = str(test_db)
+
+    app_module.init_db()
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        raise ResendError(
+            code=500,
+            error_type="application_error",
+            message="test error",
+            suggested_action="",
+        )
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    runner = app_module.app.test_cli_runner()
+
+    result = runner.invoke(
+        args=["send-notifications"],
+    )
+
+    assert result.exit_code == 1
+    assert "通知メールの送信に失敗しました" in result.output
+
+
 def test_extract_notification_targets_includes_expired_food():
     expired_food = app_module.Food(
         id=1,

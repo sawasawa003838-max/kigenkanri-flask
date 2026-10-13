@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -297,6 +298,36 @@ def send_notifications():
             message="通知メールを送信しました",
         )
     )
+
+
+@app.cli.command("send-notifications")
+def send_notifications_command():
+    api_key = app.config["RESEND_API_KEY"]
+    sender_email = app.config["SENDER_EMAIL"]
+    recipient_email = app.config["RECIPIENT_EMAIL"]
+
+    if not api_key or not sender_email or not recipient_email:
+        print("メール設定が不足しています")
+        sys.exit(1)
+
+    foods = fetch_foods()
+    targets = extract_notification_targets(foods)
+
+    if not targets:
+        print("通知対象の食品はありません")
+        return
+
+    try:
+        send_notification_email(
+            targets,
+            sender_email=sender_email,
+            recipient_email=recipient_email,
+        )
+    except ResendError:
+        print("通知メールの送信に失敗しました")
+        sys.exit(1)
+
+    print("通知メールを送信しました")
 
 
 @app.route("/delete/<int:food_id>", methods=["POST"])
