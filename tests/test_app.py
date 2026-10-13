@@ -2,6 +2,7 @@ import sqlite3
 from datetime import date
 
 import pytest
+from resend.exceptions import ResendError
 
 import app as app_module
 
@@ -279,6 +280,414 @@ def test_home_page_shows_expiry_status(client):
 
     assert response.status_code == 200
     assert app_module.EXPIRY_STATUS_INVALID in body
+
+
+def test_build_notification_email_includes_expired_food():
+    expired_food = app_module.Food(
+        id=1,
+        name="milk",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [expired_food]
+    )
+
+    assert subject == "【賞味期限管理】確認が必要な食品があります"
+    assert "milk" in body
+    assert "2026-07-19" in body
+    assert app_module.EXPIRY_STATUS_EXPIRED in body
+
+
+def test_build_notification_email_includes_expiring_soon_food():
+    food = app_module.Food(
+        id=2,
+        name="eggs",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+
+    subject, body = app_module.build_notification_email([food])
+
+    assert "eggs" in body
+    assert "2026-07-22" in body
+    assert app_module.EXPIRY_STATUS_SOON in body
+
+
+def test_build_notification_email_keeps_food_order():
+    milk = app_module.Food(
+        id=1,
+        name="milk",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+    eggs = app_module.Food(
+        id=2,
+        name="eggs",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [milk, eggs]
+    )
+
+    assert body.index("milk") < body.index("eggs")
+
+
+def test_build_notification_email_returns_none_for_empty_targets():
+    result = app_module.build_notification_email([])
+
+    assert result is None
+
+
+def test_build_notification_email_creates_email_for_expired_food():
+    expired_food = app_module.Food(
+        id=1,
+        name="牛乳",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [expired_food]
+    )
+
+    assert subject == "【賞味期限管理】確認が必要な食品があります"
+    assert body == (
+        "期限の確認が必要な食品をお知らせします。\n"
+        "\n"
+        "・牛乳（期限：2026-07-19、状態：期限切れ）\n"
+        "\n"
+        "食品の状態を確認してください。"
+    )
+
+
+def test_build_notification_email_includes_multiple_targets_in_order():
+    expired_food = app_module.Food(
+        id=1,
+        name="牛乳",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+    expiring_soon_food = app_module.Food(
+        id=2,
+        name="卵",
+        expiry_date="2026-07-22",
+        expiry_status=app_module.EXPIRY_STATUS_SOON,
+    )
+
+    subject, body = app_module.build_notification_email(
+        [
+            expired_food,
+            expiring_soon_food,
+        ]
+    )
+
+    assert subject == "【賞味期限管理】確認が必要な食品があります"
+    assert "・牛乳（期限：2026-07-19、状態：期限切れ）" in body
+    assert "・卵（期限：2026-07-22、状態：期限間近）" in body
+    assert body.index("牛乳") < body.index("卵")
+
+
+def test_send_notification_email_sends_expected_email(monkeypatch):
+    expired_food = app_module.Food(
+        id=1,
+        name="牛乳",
+        expiry_date="2026-07-19",
+        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
+    )
+
+    sent_params = {}
+
+    def fake_send(params):
+        sent_params.update(params)
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module.resend.Emails,
+        "send",
+        fake_send,
+    )
+
+    result = app_module.send_notification_email(
+        [expired_food],
+        sender_email="sender@example.com",
+        recipient_email="store@example.com",
+    )
+
+    assert result == {"id": "test-email-id"}
+    assert sent_params["from"] == "sender@example.com"
+    assert sent_params["to"] == ["store@example.com"]
+    assert sent_params["subject"] == (
+        "【賞味期限管理】確認が必要な食品があります"
+    )
+    assert "牛乳" in sent_params["text"]
+
+
+def test_send_notification_email_does_not_send_when_targets_are_empty(
+    monkeypatch,
+):
+    send_was_called = False
+
+    def fake_send(params):
+        nonlocal send_was_called
+        send_was_called = True
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module.resend.Emails,
+        "send",
+        fake_send,
+    )
+
+    result = app_module.send_notification_email(
+        [],
+        sender_email="sender@example.com",
+        recipient_email="store@example.com",
+    )
+
+    assert result is None
+    assert send_was_called is False
+
+
+def test_send_notifications_route_sends_notification_email(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    sent_data = {}
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        sent_data["targets"] = targets
+        sent_data["sender_email"] = sender_email
+        sent_data["recipient_email"] = recipient_email
+
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    monkeypatch.setitem(
+    app_module.app.config,
+    "SENDER_EMAIL",
+    "sender@example.com",
+)
+    monkeypatch.setitem(
+    app_module.app.config,
+    "RECIPIENT_EMAIL",
+    "store@example.com",
+)
+
+    response = client.post("/notifications/send")
+
+    assert response.status_code == 302
+    assert [food.name for food in sent_data["targets"]] == ["milk"]
+    assert sent_data["sender_email"] == "sender@example.com"
+    assert sent_data["recipient_email"] == "store@example.com"
+
+
+def test_home_page_has_send_notifications_button(client):
+    response = client.get("/")
+    body = response.get_data(as_text=True)
+
+    assert 'action="/notifications/send"' in body
+    assert 'method="POST"' in body
+    assert "通知メールを送信" in body
+
+
+def test_send_notifications_route_does_not_send_without_email_config(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    send_was_called = False
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        nonlocal send_was_called
+        send_was_called = True
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        None,
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        None,
+    )
+
+    monkeypatch.setitem(
+    app_module.app.config,
+    "RESEND_API_KEY",
+    None,
+    )
+
+    response = client.post("/notifications/send")
+
+    assert response.status_code == 302
+    assert send_was_called is False
+
+
+def test_send_notifications_route_shows_success_message(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        return {"id": "test-email-id"}
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    response = client.post(
+        "/notifications/send",
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "通知メールを送信しました" in body
+
+
+def test_send_notifications_route_shows_message_when_no_targets(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    response = client.post(
+        "/notifications/send",
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "通知対象の食品はありません" in body
+
+
+def test_send_notifications_route_shows_error_message_when_send_fails(
+    client,
+    monkeypatch,
+):
+    add_food(
+        name="milk",
+        date="2020-01-01",
+    )
+
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RESEND_API_KEY",
+        "test-api-key",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "SENDER_EMAIL",
+        "sender@example.com",
+    )
+    monkeypatch.setitem(
+        app_module.app.config,
+        "RECIPIENT_EMAIL",
+        "store@example.com",
+    )
+
+    def fake_send_notification_email(
+        targets,
+        sender_email,
+        recipient_email,
+    ):
+        raise ResendError(
+            code=500,
+            error_type="application_error",
+            message="test error",
+            suggested_action="",
+        )
+
+    monkeypatch.setattr(
+        app_module,
+        "send_notification_email",
+        fake_send_notification_email,
+    )
+
+    response = client.post(
+        "/notifications/send",
+        follow_redirects=True,
+    )
+
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "通知メールの送信に失敗しました" in body
 
 
 def test_extract_notification_targets_includes_expired_food():

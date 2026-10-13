@@ -1,12 +1,21 @@
+import os
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from flask import Flask, render_template, request, redirect
+import resend
+from flask import Flask, render_template, request, redirect, url_for
+from resend.exceptions import ResendError
 
 app = Flask(__name__)
 app.config["DATABASE"] = "database.db"
+
+app.config["RESEND_API_KEY"] = os.environ.get("RESEND_API_KEY")
+app.config["SENDER_EMAIL"] = os.environ.get("SENDER_EMAIL")
+app.config["RECIPIENT_EMAIL"] = os.environ.get("RECIPIENT_EMAIL")
+
+resend.api_key = app.config["RESEND_API_KEY"]
 
 MAX_SHELF_LIFE_DAYS = 3650
 EXPIRING_SOON_DAYS = 3
@@ -78,6 +87,48 @@ def determine_expiry_status(expiry_date_text, today=None):
         return EXPIRY_STATUS_SOON
 
     return EXPIRY_STATUS_NORMAL
+
+
+def build_notification_email(targets):
+    if not targets:
+        return None
+
+    subject = "【賞味期限管理】確認が必要な食品があります"
+    lines = ["期限の確認が必要な食品をお知らせします。", ""]
+
+    for food in targets:
+        lines.append(
+            f"・{food.name}"
+            f"（期限：{food.expiry_date}、"
+            f"状態：{food.expiry_status}）"
+        )
+
+    lines.extend(["", "食品の状態を確認してください。"])
+    body = "\n".join(lines)
+
+    return subject, body
+
+
+def send_notification_email(
+    targets: Iterable[Food],
+    sender_email: str,
+    recipient_email: str,
+):
+    email_content = build_notification_email(targets)
+
+    if email_content is None:
+        return None
+
+    subject, body = email_content
+
+    params: resend.Emails.SendParams = {
+        "from": sender_email,
+        "to": [recipient_email],
+        "subject": subject,
+        "text": body,
+    }
+
+    return resend.Emails.send(params)
 
 
 def extract_notification_targets(
@@ -168,6 +219,7 @@ def validate_shelf_life_days(days_text):
 @app.route("/", methods=["GET", "POST"])
 def home():
     error = None
+    message = request.args.get("message")
 
     if request.method == "POST":
         name, error = validate_name(request.form.get("name", ""))
@@ -200,7 +252,50 @@ def home():
         "index.html",
         foods=fetch_foods(),
         error=error,
+        message=message,
         max_shelf_life_days=MAX_SHELF_LIFE_DAYS,
+    )
+
+
+@app.route("/notifications/send", methods=["POST"])
+def send_notifications():
+    api_key = app.config["RESEND_API_KEY"]
+    sender_email = app.config["SENDER_EMAIL"]
+    recipient_email = app.config["RECIPIENT_EMAIL"]
+
+    if not api_key or not sender_email or not recipient_email:
+        return redirect("/")
+
+    foods = fetch_foods()
+    targets = extract_notification_targets(foods)
+
+    if not targets:
+        return redirect(
+            url_for(
+                "home",
+                message="通知対象の食品はありません",
+            )
+        )
+
+    try:
+        send_notification_email(
+            targets,
+            sender_email=sender_email,
+            recipient_email=recipient_email,
+        )
+    except ResendError:
+        return redirect(
+            url_for(
+                "home",
+                message="通知メールの送信に失敗しました",
+            )
+        )
+
+    return redirect(
+        url_for(
+            "home",
+            message="通知メールを送信しました",
+        )
     )
 
 
