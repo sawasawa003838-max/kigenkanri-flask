@@ -3,5 +3,7 @@ database.db
 __pycache__/
 *.pyc
 .pytest_cache/
+.pytest_cache_local/
+.test-runs/
 pytest-cache-files-*/
 scheduler.log
