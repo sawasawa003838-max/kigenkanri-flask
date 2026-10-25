@@ -1,16 +1,26 @@
 import os
-import sqlite3
 import sys
-from collections.abc import Iterable
-from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 
+
+import openai
+from flask import Flask, redirect, render_template, request, url_for
+from resend.exceptions import ResendError
 
 import ai_guidance
-import openai
-import resend
-from flask import Flask, render_template, request, redirect, url_for
-from resend.exceptions import ResendError
+import db
+import notifications
+from expiry import (
+    ERROR_DATE_OVERFLOW,
+    ERROR_OPEN_DATE_INVALID,
+    EXPIRY_STATUS_EXPIRED,
+    EXPIRY_STATUS_SOON,
+    MAX_SHELF_LIFE_DAYS,
+    calculate_expiry_date,
+    determine_expiry_status,
+    validate_iso_date,
+    validate_shelf_life_days,
+)
 
 
 app = Flask(__name__)
@@ -20,166 +30,19 @@ app.config["RESEND_API_KEY"] = os.environ.get("RESEND_API_KEY")
 app.config["SENDER_EMAIL"] = os.environ.get("SENDER_EMAIL")
 app.config["RECIPIENT_EMAIL"] = os.environ.get("RECIPIENT_EMAIL")
 
-resend.api_key = app.config["RESEND_API_KEY"]
-
-MAX_SHELF_LIFE_DAYS = 3650
-EXPIRING_SOON_DAYS = 3
-
-EXPIRY_STATUS_EXPIRED = "期限切れ"
-EXPIRY_STATUS_SOON = "期限間近"
-EXPIRY_STATUS_NORMAL = "通常"
-EXPIRY_STATUS_INVALID = "日付エラー"
 
 ERROR_NAME_REQUIRED = "食品名を入力してください"
-ERROR_DATE_SUFFIX = "を正しい形式で入力してください"
-ERROR_OPEN_DATE_INVALID = "開封日を正しい形式で入力してください"
-ERROR_DATE_OVERFLOW = "開封日と保存日数の組み合わせが大きすぎます"
-ERROR_SHELF_LIFE_DAYS = (
-    "保存日数は1日以上"
-    f"{MAX_SHELF_LIFE_DAYS}"
-    "日以下で入力してください"
-)
 LABEL_EXPIRY_DATE = "賞味期限"
 
 
-@dataclass
-class Food:
-    id: int
-    name: str
-    expiry_date: str
-    expiry_status: str
-
-
-def get_db_connection():
-    return sqlite3.connect(app.config["DATABASE"])
-
-
 def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS foods (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            date TEXT NOT NULL
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def calculate_expiry_date(open_date, shelf_life_days):
-    return open_date + timedelta(days=shelf_life_days)
-
-
-def determine_expiry_status(expiry_date_text, today=None):
-    if today is None:
-        today = date.today()
-
-    try:
-        expiry_date = date.fromisoformat(expiry_date_text)
-    except (TypeError, ValueError):
-        return EXPIRY_STATUS_INVALID
-
-    days_until_expiry = (expiry_date - today).days
-
-    if days_until_expiry < 0:
-        return EXPIRY_STATUS_EXPIRED
-
-    if days_until_expiry <= EXPIRING_SOON_DAYS:
-        return EXPIRY_STATUS_SOON
-
-    return EXPIRY_STATUS_NORMAL
-
-
-def build_notification_email(targets):
-    if not targets:
-        return None
-
-    subject = "【賞味期限管理】確認が必要な食品があります"
-    lines = ["期限の確認が必要な食品をお知らせします。", ""]
-
-    for food in targets:
-        lines.append(
-            f"・{food.name}"
-            f"（期限：{food.expiry_date}、"
-            f"状態：{food.expiry_status}）"
-        )
-
-    lines.extend(["", "食品の状態を確認してください。"])
-    body = "\n".join(lines)
-
-    return subject, body
-
-
-def send_notification_email(
-    targets: Iterable[Food],
-    sender_email: str,
-    recipient_email: str,
-):
-    email_content = build_notification_email(targets)
-
-    if email_content is None:
-        return None
-
-    subject, body = email_content
-
-    params: resend.Emails.SendParams = {
-        "from": sender_email,
-        "to": [recipient_email],
-        "subject": subject,
-        "text": body,
-    }
-
-    return resend.Emails.send(params)
-
-
-def extract_notification_targets(
-    foods: Iterable[Food],
-) -> list[Food]:
-    targets = []
-
-    for food in foods:
-        if food.expiry_status in (
-            EXPIRY_STATUS_EXPIRED,
-            EXPIRY_STATUS_SOON,
-        ):
-            targets.append(food)
-
-    return targets
+    """起動時にアプリ設定のDBを初期化する。"""
+    db.init_db(app.config["DATABASE"])
 
 
 def fetch_foods(reference_date=None):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "SELECT id, name, date FROM foods"
-    )
-
-    food_rows = cursor.fetchall()
-    conn.close()
-
-    foods = []
-
-    for food_id, name, expiry_date in food_rows:
-        status = determine_expiry_status(
-            expiry_date,
-            reference_date,
-        )
-
-        foods.append(
-            Food(
-                id=food_id,
-                name=name,
-                expiry_date=expiry_date,
-                expiry_status=status,
-            )
-        )
-
-    return foods
+    """アプリ設定のDBから、状態付きの食品を取得する。"""
+    return db.fetch_foods(app.config["DATABASE"], reference_date)
 
 
 def render_home_with_error(error):
@@ -196,29 +59,6 @@ def validate_name(name):
     if name == "":
         return None, ERROR_NAME_REQUIRED
     return name, None
-
-
-def validate_iso_date(date_text, label):
-    try:
-        date.fromisoformat(date_text)
-    except ValueError:
-        return None, f"{label}{ERROR_DATE_SUFFIX}"
-    return date_text, None
-
-
-def validate_shelf_life_days(days_text):
-    if not days_text.isdigit():
-        return None, ERROR_SHELF_LIFE_DAYS
-
-    try:
-        days = int(days_text)
-    except ValueError:
-        return None, ERROR_SHELF_LIFE_DAYS
-
-    if days < 1 or days > MAX_SHELF_LIFE_DAYS:
-        return None, ERROR_SHELF_LIFE_DAYS
-
-    return days, None
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -240,14 +80,7 @@ def home():
                 expiry_date = calculate_expiry_date(open_date_obj, days)
                 expiry_date_text = expiry_date.isoformat()
 
-                conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO foods (name, date) VALUES (?, ?)",
-                    (name, expiry_date_text),
-                )
-                conn.commit()
-                conn.close()
+                db.insert_food(app.config["DATABASE"], name, expiry_date_text)
             except ValueError:
                 error = ERROR_OPEN_DATE_INVALID
             except OverflowError:
@@ -271,37 +104,17 @@ def send_notifications():
     if not api_key or not sender_email or not recipient_email:
         return redirect("/")
 
-    foods = fetch_foods()
-    targets = extract_notification_targets(foods)
-
-    if not targets:
-        return redirect(
-            url_for(
-                "home",
-                message="通知対象の食品はありません",
-            )
-        )
-
     try:
-        send_notification_email(
-            targets,
+        message = notifications.notify_foods(
+            fetch_foods(),
+            api_key=api_key,
             sender_email=sender_email,
             recipient_email=recipient_email,
         )
     except ResendError:
-        return redirect(
-            url_for(
-                "home",
-                message="通知メールの送信に失敗しました",
-            )
-        )
+        message = "通知メールの送信に失敗しました"
 
-    return redirect(
-        url_for(
-            "home",
-            message="通知メールを送信しました",
-        )
-    )
+    return redirect(url_for("home", message=message))
 
 
 @app.cli.command("send-notifications")
@@ -314,16 +127,10 @@ def send_notifications_command():
         print("メール設定が不足しています")
         sys.exit(1)
 
-    foods = fetch_foods()
-    targets = extract_notification_targets(foods)
-
-    if not targets:
-        print("通知対象の食品はありません")
-        return
-
     try:
-        send_notification_email(
-            targets,
+        message = notifications.notify_foods(
+            fetch_foods(),
+            api_key=api_key,
             sender_email=sender_email,
             recipient_email=recipient_email,
         )
@@ -331,18 +138,12 @@ def send_notifications_command():
         print("通知メールの送信に失敗しました")
         sys.exit(1)
 
-    print("通知メールを送信しました")
+    print(message)
 
 
 @app.route("/delete/<int:food_id>", methods=["POST"])
 def delete_food(food_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM foods WHERE id = ?", (food_id,))
-
-    conn.commit()
-    conn.close()
+    db.delete_food(app.config["DATABASE"], food_id)
 
     return redirect("/")
 
@@ -357,32 +158,14 @@ def edit_food(food_id):
     if error is not None:
         return render_home_with_error(error)
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "UPDATE foods SET name = ?, date = ? WHERE id = ?",
-        (name, date_text, food_id),
-    )
-
-    conn.commit()
-    conn.close()
+    db.update_food(app.config["DATABASE"], food_id, name, date_text)
 
     return redirect("/")
 
 
 @app.route("/ai-guidance/<int:food_id>", methods=["POST"])
 def show_ai_guidance(food_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-    "SELECT name, date FROM foods WHERE id = ?",
-    (food_id,),
-    )
-
-    row = cursor.fetchone()
-    conn.close()
+    row = db.get_food(app.config["DATABASE"], food_id)
 
     if row is None:
         return render_home_with_error("食品が見つかりません。")

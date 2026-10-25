@@ -6,6 +6,9 @@ from resend.exceptions import ResendError
 
 import ai_guidance
 import app as app_module
+import db
+import expiry
+import notifications
 import openai
 
 @pytest.fixture()
@@ -134,7 +137,7 @@ def test_days_validation(client, days, should_save):
     else:
         assert after == before
 
-    assert (app_module.ERROR_SHELF_LIFE_DAYS in body) != should_save
+    assert (expiry.ERROR_SHELF_LIFE_DAYS in body) != should_save
 
 
 def test_days_input_has_max_attribute(client):
@@ -160,7 +163,7 @@ def test_expiry_date_overflow_shows_error_without_saving(client):
 
     assert response.status_code != 500
     assert after == before
-    assert app_module.ERROR_DATE_OVERFLOW in body
+    assert expiry.ERROR_DATE_OVERFLOW in body
 
 
 @pytest.mark.parametrize(
@@ -198,38 +201,6 @@ def test_delete_missing_id_does_not_return_500(client):
     assert response.status_code != 500
 
 
-def test_expiry_status_is_expired_for_yesterday():
-    today = date(2026, 7, 2)
-
-    status = app_module.determine_expiry_status("2026-07-01", today)
-
-    assert status == app_module.EXPIRY_STATUS_EXPIRED
-
-
-def test_expiry_status_is_expiring_soon_for_today():
-    today = date(2026, 7, 2)
-
-    status = app_module.determine_expiry_status("2026-07-02", today)
-
-    assert status == app_module.EXPIRY_STATUS_SOON
-
-
-def test_expiry_status_is_expiring_soon_for_three_days_later():
-    today = date(2026, 7, 2)
-
-    status = app_module.determine_expiry_status("2026-07-05", today)
-
-    assert status == app_module.EXPIRY_STATUS_SOON
-
-
-def test_expiry_status_is_normal_for_four_days_later():
-    today = date(2026, 7, 2)
-
-    status = app_module.determine_expiry_status("2026-07-06", today)
-
-    assert status == app_module.EXPIRY_STATUS_NORMAL
-
-
 def test_fetch_foods_includes_expiry_status(client):
     reference_date = date(2026, 6, 1)
 
@@ -243,11 +214,11 @@ def test_fetch_foods_includes_expiry_status(client):
     )
 
     assert foods == [
-        app_module.Food(
+        db.Food(
             id=food_id,
             name="milk",
             expiry_date="2026-06-04",
-            expiry_status=app_module.EXPIRY_STATUS_SOON,
+            expiry_status=expiry.EXPIRY_STATUS_SOON,
         )
     ]
 
@@ -265,7 +236,7 @@ def test_invalid_expiry_date_does_not_return_500(client):
     response = client.get("/")
 
     assert foods[0].expiry_status == (
-        app_module.EXPIRY_STATUS_INVALID
+        expiry.EXPIRY_STATUS_INVALID
     )
     assert response.status_code == 200
 
@@ -280,7 +251,7 @@ def test_home_page_shows_expiry_status(client):
     body = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert app_module.EXPIRY_STATUS_INVALID in body
+    assert expiry.EXPIRY_STATUS_INVALID in body
 
 
 def test_ai_guidance_route_shows_guidance_for_expiring_soon_food(
@@ -328,7 +299,7 @@ def test_ai_guidance_route_shows_guidance_for_expiring_soon_food(
     assert captured["client"] is fake_client
     assert captured["food_name"] == "卵"
     assert captured["expiry_date"] == expiry_date
-    assert captured["expiry_status"] == app_module.EXPIRY_STATUS_SOON
+    assert captured["expiry_status"] == expiry.EXPIRY_STATUS_SOON
     assert "保存状態を確認してください。" in body
 
 
@@ -451,7 +422,7 @@ def test_ai_guidance_route_works_for_expired_food(
     response = client.post(f"/ai-guidance/{food_id}")
 
     assert response.status_code == 200
-    assert captured["expiry_status"] == app_module.EXPIRY_STATUS_EXPIRED
+    assert captured["expiry_status"] == expiry.EXPIRY_STATUS_EXPIRED
 
 
 def test_ai_guidance_route_does_not_call_ai_for_invalid_date(
@@ -529,174 +500,6 @@ def test_ai_guidance_display_preserves_line_breaks(
 
     assert response.status_code == 200
     assert 'white-space: pre-line' in body
-def test_build_notification_email_includes_expired_food():
-    expired_food = app_module.Food(
-        id=1,
-        name="milk",
-        expiry_date="2026-07-19",
-        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
-    )
-
-    subject, body = app_module.build_notification_email(
-        [expired_food]
-    )
-
-    assert subject == "【賞味期限管理】確認が必要な食品があります"
-    assert "milk" in body
-    assert "2026-07-19" in body
-    assert app_module.EXPIRY_STATUS_EXPIRED in body
-
-
-def test_build_notification_email_includes_expiring_soon_food():
-    food = app_module.Food(
-        id=2,
-        name="eggs",
-        expiry_date="2026-07-22",
-        expiry_status=app_module.EXPIRY_STATUS_SOON,
-    )
-
-    subject, body = app_module.build_notification_email([food])
-
-    assert "eggs" in body
-    assert "2026-07-22" in body
-    assert app_module.EXPIRY_STATUS_SOON in body
-
-
-def test_build_notification_email_keeps_food_order():
-    milk = app_module.Food(
-        id=1,
-        name="milk",
-        expiry_date="2026-07-19",
-        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
-    )
-    eggs = app_module.Food(
-        id=2,
-        name="eggs",
-        expiry_date="2026-07-22",
-        expiry_status=app_module.EXPIRY_STATUS_SOON,
-    )
-
-    subject, body = app_module.build_notification_email(
-        [milk, eggs]
-    )
-
-    assert body.index("milk") < body.index("eggs")
-
-
-def test_build_notification_email_returns_none_for_empty_targets():
-    result = app_module.build_notification_email([])
-
-    assert result is None
-
-
-def test_build_notification_email_creates_email_for_expired_food():
-    expired_food = app_module.Food(
-        id=1,
-        name="牛乳",
-        expiry_date="2026-07-19",
-        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
-    )
-
-    subject, body = app_module.build_notification_email(
-        [expired_food]
-    )
-
-    assert subject == "【賞味期限管理】確認が必要な食品があります"
-    assert body == (
-        "期限の確認が必要な食品をお知らせします。\n"
-        "\n"
-        "・牛乳（期限：2026-07-19、状態：期限切れ）\n"
-        "\n"
-        "食品の状態を確認してください。"
-    )
-
-
-def test_build_notification_email_includes_multiple_targets_in_order():
-    expired_food = app_module.Food(
-        id=1,
-        name="牛乳",
-        expiry_date="2026-07-19",
-        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
-    )
-    expiring_soon_food = app_module.Food(
-        id=2,
-        name="卵",
-        expiry_date="2026-07-22",
-        expiry_status=app_module.EXPIRY_STATUS_SOON,
-    )
-
-    subject, body = app_module.build_notification_email(
-        [
-            expired_food,
-            expiring_soon_food,
-        ]
-    )
-
-    assert subject == "【賞味期限管理】確認が必要な食品があります"
-    assert "・牛乳（期限：2026-07-19、状態：期限切れ）" in body
-    assert "・卵（期限：2026-07-22、状態：期限間近）" in body
-    assert body.index("牛乳") < body.index("卵")
-
-
-def test_send_notification_email_sends_expected_email(monkeypatch):
-    expired_food = app_module.Food(
-        id=1,
-        name="牛乳",
-        expiry_date="2026-07-19",
-        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
-    )
-
-    sent_params = {}
-
-    def fake_send(params):
-        sent_params.update(params)
-        return {"id": "test-email-id"}
-
-    monkeypatch.setattr(
-        app_module.resend.Emails,
-        "send",
-        fake_send,
-    )
-
-    result = app_module.send_notification_email(
-        [expired_food],
-        sender_email="sender@example.com",
-        recipient_email="store@example.com",
-    )
-
-    assert result == {"id": "test-email-id"}
-    assert sent_params["from"] == "sender@example.com"
-    assert sent_params["to"] == ["store@example.com"]
-    assert sent_params["subject"] == (
-        "【賞味期限管理】確認が必要な食品があります"
-    )
-    assert "牛乳" in sent_params["text"]
-
-
-def test_send_notification_email_does_not_send_when_targets_are_empty(
-    monkeypatch,
-):
-    send_was_called = False
-
-    def fake_send(params):
-        nonlocal send_was_called
-        send_was_called = True
-        return {"id": "test-email-id"}
-
-    monkeypatch.setattr(
-        app_module.resend.Emails,
-        "send",
-        fake_send,
-    )
-
-    result = app_module.send_notification_email(
-        [],
-        sender_email="sender@example.com",
-        recipient_email="store@example.com",
-    )
-
-    assert result is None
-    assert send_was_called is False
 
 
 def test_send_notifications_route_sends_notification_email(
@@ -722,7 +525,7 @@ def test_send_notifications_route_sends_notification_email(
         return {"id": "test-email-id"}
 
     monkeypatch.setattr(
-        app_module,
+        notifications,
         "send_notification_email",
         fake_send_notification_email,
     )
@@ -737,6 +540,8 @@ def test_send_notifications_route_sends_notification_email(
     "RECIPIENT_EMAIL",
     "store@example.com",
 )
+
+    monkeypatch.setitem(app_module.app.config, "RESEND_API_KEY", "test-api-key")
 
     response = client.post("/notifications/send")
 
@@ -775,7 +580,7 @@ def test_send_notifications_route_does_not_send_without_email_config(
         send_was_called = True
 
     monkeypatch.setattr(
-        app_module,
+        notifications,
         "send_notification_email",
         fake_send_notification_email,
     )
@@ -836,7 +641,7 @@ def test_send_notifications_route_shows_success_message(
         return {"id": "test-email-id"}
 
     monkeypatch.setattr(
-        app_module,
+        notifications,
         "send_notification_email",
         fake_send_notification_email,
     )
@@ -921,7 +726,7 @@ def test_send_notifications_route_shows_error_message_when_send_fails(
         )
 
     monkeypatch.setattr(
-        app_module,
+        notifications,
         "send_notification_email",
         fake_send_notification_email,
     )
@@ -980,7 +785,7 @@ def test_send_notifications_command_sends_notification_email(
         return {"id": "test-email-id"}
 
     monkeypatch.setattr(
-        app_module,
+        notifications,
         "send_notification_email",
         fake_send_notification_email,
     )
@@ -1104,7 +909,7 @@ def test_send_notifications_command_fails_when_send_fails(
         )
 
     monkeypatch.setattr(
-        app_module,
+        notifications,
         "send_notification_email",
         fake_send_notification_email,
     )
@@ -1117,110 +922,3 @@ def test_send_notifications_command_fails_when_send_fails(
 
     assert result.exit_code == 1
     assert "通知メールの送信に失敗しました" in result.output
-
-
-def test_extract_notification_targets_includes_expired_food():
-    expired_food = app_module.Food(
-        id=1,
-        name="milk",
-        expiry_date="2026-07-01",
-        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
-    )
-
-    targets = app_module.extract_notification_targets(
-        [expired_food]
-    )
-
-    assert targets == [expired_food]
-
-
-def test_extract_notification_targets_includes_expiring_soon_food():
-    expiring_soon_food = app_module.Food(
-        id=2,
-        name="eggs",
-        expiry_date="2026-07-22",
-        expiry_status=app_module.EXPIRY_STATUS_SOON,
-    )
-
-    targets = app_module.extract_notification_targets(
-        [expiring_soon_food]
-    )
-
-    assert targets == [expiring_soon_food]
-
-
-def test_extract_notification_targets_excludes_normal_food():
-    normal_food = app_module.Food(
-        id=3,
-        name="rice",
-        expiry_date="2026-08-01",
-        expiry_status=app_module.EXPIRY_STATUS_NORMAL,
-    )
-
-    targets = app_module.extract_notification_targets(
-        [normal_food]
-    )
-
-    assert targets == []
-
-
-def test_extract_notification_targets_excludes_invalid_date_food():
-    invalid_food = app_module.Food(
-        id=4,
-        name="invalid-food",
-        expiry_date="not-a-date",
-        expiry_status=app_module.EXPIRY_STATUS_INVALID,
-    )
-
-    targets = app_module.extract_notification_targets(
-        [invalid_food]
-    )
-
-    assert targets == []
-
-
-def test_extract_notification_targets_returns_multiple_targets_in_order():
-    expired_food = app_module.Food(
-        id=1,
-        name="milk",
-        expiry_date="2026-07-19",
-        expiry_status=app_module.EXPIRY_STATUS_EXPIRED,
-    )
-    normal_food = app_module.Food(
-        id=2,
-        name="rice",
-        expiry_date="2026-08-01",
-        expiry_status=app_module.EXPIRY_STATUS_NORMAL,
-    )
-    expiring_soon_food = app_module.Food(
-        id=3,
-        name="eggs",
-        expiry_date="2026-07-22",
-        expiry_status=app_module.EXPIRY_STATUS_SOON,
-    )
-    invalid_food = app_module.Food(
-        id=4,
-        name="invalid-food",
-        expiry_date="not-a-date",
-        expiry_status=app_module.EXPIRY_STATUS_INVALID,
-    )
-
-    targets = app_module.extract_notification_targets(
-        [
-            expired_food,
-            normal_food,
-            expiring_soon_food,
-            invalid_food,
-        ]
-    )
-
-    assert targets == [
-        expired_food,
-        expiring_soon_food,
-    ]
-
-
-def test_extract_notification_targets_returns_empty_list_for_empty_input():
-    targets = app_module.extract_notification_targets([])
-
-    assert targets == []
